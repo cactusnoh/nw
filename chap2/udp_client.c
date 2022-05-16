@@ -1,14 +1,15 @@
 #include <stdio.h>
+#include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
 
-#define PORT 25565
+#define PORT 8080
 
 int main(void)
 {
-  int client_socket = socket(AF_INET, SOCK_DGRAM, 0);
+  int client_socket = socket(AF_INET, SOCK_STREAM, 0);
 
   if(client_socket == -1) {
     printf("Socket creation error.\n");
@@ -25,14 +26,22 @@ int main(void)
     return 1;
   }
 
-  if(connect(client_socket, (struct sockaddr *)&server_addr, (socklen_t)sizeof(server_addr)) != 0) {
+  if(connect(client_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) != 0) {
+    perror("");
     printf("Connection error.\n");
     return 1;
   }
 
-  char send_msg[] = "Hi server.";
-  send(client_socket, send_msg, sizeof(send_msg), 0);
+  char *send_msg = "Hi from client.", buf[1024] = {0};
+
+  if(send(client_socket, send_msg, strlen(send_msg), 0) == -1) {
+    printf("Send error.\n");
+    return 1;
+  }
+
   printf("Message sent to server.\n");
+  read(client_socket, buf, 1024);
+  printf("%s\n", buf);
 
   return 0;
 }

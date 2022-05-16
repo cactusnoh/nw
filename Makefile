@@ -1,2 +1,2 @@
 clean:
-	rm -rf *.out
+	find . -name \*.out -type f -delete
