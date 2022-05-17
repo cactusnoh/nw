@@ -34,11 +34,11 @@ int main(void)
   while (1) {
     recvfrom(server_sock, recv_msg, 1024, 0, (struct sockaddr *)&client_addr, &addr_len);
 
-    printf("Received: %s\n", recv_msg);
-
     if (strcmp(recv_msg, "exit") == 0) {
       break;
     }
+
+    printf("Received: %s\n", recv_msg);
 
     for (char *p = recv_msg; *p != '\0'; ++p) {
       *p = toupper(*p);
@@ -46,6 +46,8 @@ int main(void)
 
     sendto(server_sock, recv_msg, sizeof(recv_msg), 0, (struct sockaddr *)&client_addr, (socklen_t)sizeof(client_addr));
   }
+
+  close(server_sock);
 
   return 0;
 }

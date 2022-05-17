@@ -37,18 +37,20 @@ int main(void)
     printf("Type in text: ");
     scanf("%s", send_msg);
 
+    if (strcmp(send_msg, "exit") == 0) {
+      break;
+    }
+
     if (send(client_sock, send_msg, sizeof(send_msg), 0) == -1) {
       perror("Send error");
       return 1;
     }
 
-    if (strcmp(send_msg, "exit") == 0) {
-      break;
-    }
-
     read(client_sock, recv_msg, 1024);
     printf("Uppercase: %s\n", recv_msg);
   }
+
+  close(client_sock);
 
   return 0;
 }

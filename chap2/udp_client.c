@@ -48,5 +48,7 @@ int main(void)
     printf("Uppercase: %s\n", recv_msg);
   }
 
+  close(client_sock);
+
   return 0;
 }

@@ -44,13 +44,11 @@ int main(void)
   char recv_msg[1024];
 
   while (1) {
-    read(connection_sock, recv_msg, 1024);
-
-    printf("Received: %s\n", recv_msg);
-
-    if (strcmp(recv_msg, "exit") == 0) {
+    if(read(connection_sock, recv_msg, 1024) <= 0) {
       break;
     }
+
+    printf("Received: %s\n", recv_msg);
 
     for (char *p = recv_msg; *p != '\0'; ++p) {
       *p = toupper(*p);
@@ -58,6 +56,9 @@ int main(void)
 
     send(connection_sock, recv_msg, sizeof(recv_msg), 0);
   }
+
+  close(connection_sock);
+  close(server_sock);
 
   return 0;
 }
