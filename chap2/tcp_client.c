@@ -9,9 +9,9 @@
 
 int main(void)
 {
-  int client_socket = socket(AF_INET, SOCK_STREAM, 0);
+  int client_sock;
 
-  if(client_socket == -1) {
+  if ((client_sock = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
     perror("Socket creation error");
     return 1;
   }
@@ -21,28 +21,34 @@ int main(void)
   server_addr.sin_family = AF_INET;
   server_addr.sin_port = htons(PORT);
   
-  if(inet_pton(AF_INET, "127.0.0.1", &server_addr.sin_addr) != 1) {
+  if (inet_pton(AF_INET, "127.0.0.1", &server_addr.sin_addr) != 1) {
     perror("Address conversion error");
     return 1;
   }
 
-  if(connect(client_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) != 0) {
+  if (connect(client_sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) != 0) {
     perror("Connection error");
     return 1;
   }
 
   char send_msg[1024], recv_msg[1024];
 
-  printf("Type in text: ");
-  scanf("%s", send_msg);
+  while (1) {
+    printf("Type in text: ");
+    scanf("%s", send_msg);
 
-  if(send(client_socket, send_msg, sizeof(send_msg), 0) == -1) {
-    perror("Send error");
-    return 1;
+    if (send(client_sock, send_msg, sizeof(send_msg), 0) == -1) {
+      perror("Send error");
+      return 1;
+    }
+
+    if (strcmp(send_msg, "exit") == 0) {
+      break;
+    }
+
+    read(client_sock, recv_msg, 1024);
+    printf("Uppercase: %s\n", recv_msg);
   }
-
-  read(client_socket, recv_msg, 1024);
-  printf("%s\n", recv_msg);
 
   return 0;
 }
