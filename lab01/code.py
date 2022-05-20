@@ -2,12 +2,13 @@
 from socket import *
 # In order to terminate the program
 import sys 
+# In order to use realpath
 import os
 
 serverSocket = socket(AF_INET, SOCK_STREAM)
 
 #Prepare a sever socket
-serverPort = 25567
+serverPort = 25566
 serverSocket.bind(('', serverPort))
 serverSocket.listen(1)
 
@@ -19,21 +20,26 @@ while True:
     message = connectionSocket.recv(1024).decode()
     message = message.split()
 
+    print("Got request: ")
+    print(message)
+    
+    if len(message) == 0:
+      continue
+
     filename = message[1][1:]
     code_path = os.path.realpath(__file__)
     file_path = code_path[:code_path.rfind("/")] + "/" + filename
-
-    print("Got request: " + message[0] + " " + file_path)
     
-    f = open(file_path)
-    outputdata = f.readlines()
+    f = open(file_path, "rb")
 
     #Send one HTTP header line into socket
     connectionSocket.send("HTTP/1.1 200 OK".encode());
 
     #Send the content of the requested file to the client
-    for i in range(0, len(outputdata)):
-      connectionSocket.send(outputdata[i].encode())
+    byte = f.read(1024)
+    while(byte):
+      connectionSocket.send(byte)
+      byte = f.read(1024)
     connectionSocket.send("\r\n".encode())
 
     connectionSocket.close()
