@@ -1,24 +1,99 @@
-#include <stdio.h>
-#include <ctype.h>
-#include <string.h>
-#include <stdlib.h>
-#include <unistd.h>
 #include <arpa/inet.h>
+#include <assert.h>
+#include <ctype.h>
+#include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/socket.h>
+#include <unistd.h>
 
 #define PORT 25565
+#define MAX_THREADS 3
+
+typedef struct __MyArg {
+  int sockfd;
+  int thread_id;
+  uint16_t port;
+  char ip[16];
+} MyArg;
+
+pthread_t thread[MAX_THREADS];
+MyArg thread_args[MAX_THREADS];
+
+/** Free thread queue */
+pthread_mutex_t queue_lock;
+int free_queue[MAX_THREADS], front = -1, rear = -1;
+int queue_size = 0;
+int size()
+{
+  pthread_mutex_lock(&queue_lock);
+  int ret = queue_size;
+  pthread_mutex_unlock(&queue_lock);
+  return ret;
+}
+int pop()
+{
+  pthread_mutex_lock(&queue_lock);
+  --queue_size;
+  front = (front + 1) % MAX_THREADS;
+  int ret = free_queue[front];
+  pthread_mutex_unlock(&queue_lock);
+  return ret;
+}
+void push(int x)
+{
+  pthread_mutex_lock(&queue_lock);
+  ++queue_size;
+  rear = (rear + 1) % MAX_THREADS;
+  free_queue[rear] = x;
+  pthread_mutex_unlock(&queue_lock);
+}
+
+void *routine(void *arg)
+{
+  MyArg *args = (MyArg *)arg;
+  int connection_sock = args->sockfd;
+
+  char recv_msg[1024];
+
+  while(1) {
+    if(read(connection_sock, recv_msg, 1024) <= 0 || strcmp(recv_msg, "exit") == 0) {
+      break;
+    }
+
+    printf("*Received: %s from %s:%d\n\n", recv_msg, args->ip, args->port);
+
+    for (char *p = recv_msg; *p != '\0'; ++p) {
+      *p = toupper(*p);
+    }
+
+    send(connection_sock, recv_msg, sizeof(recv_msg), 0);
+  }
+
+  close(connection_sock);
+  push(args->thread_id);
+
+  printf("Disconnected from %s:%d\n\n", args->ip, args->port);
+
+  return NULL;
+}
 
 int main(void)
 {
-  int server_sock;
+  for(int i = 0; i < MAX_THREADS; ++i) {
+    push(i);
+  }
+  assert(pthread_mutex_init(&queue_lock, NULL) == 0);
 
+  int server_sock, option = 1;
   if ((server_sock = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
     perror("Socket creation error");
     return 1;
   }
+  setsockopt(server_sock, SOL_SOCKET, SO_REUSEADDR, &option, sizeof(option));
 
   struct sockaddr_in server_addr;
-
   server_addr.sin_family = AF_INET;
   server_addr.sin_addr.s_addr = INADDR_ANY;
   server_addr.sin_port = htons(PORT);
@@ -34,30 +109,31 @@ int main(void)
   }
 
   int connection_sock;
-  socklen_t addrlen = sizeof(server_addr);
-
-  if ((connection_sock = accept(server_sock, (struct sockaddr *) &server_addr, (socklen_t *)&addrlen)) < 0) {
-    perror("Accept error");
-    return 1;
-  }
-
-  char recv_msg[1024];
+  struct sockaddr_in client_addr;
+  socklen_t client_addrlen = sizeof(server_addr);
 
   while (1) {
-    if(read(connection_sock, recv_msg, 1024) <= 0) {
-      break;
+    if(size() == 0) {
+      continue;
     }
 
-    printf("Received: %s\n", recv_msg);
-
-    for (char *p = recv_msg; *p != '\0'; ++p) {
-      *p = toupper(*p);
+    if ((connection_sock = accept(server_sock, (struct sockaddr *) &client_addr, (socklen_t *)&client_addrlen)) < 0) {
+      perror("Accept error");
+      continue;
     }
 
-    send(connection_sock, recv_msg, sizeof(recv_msg), 0);
+    int thread_id = pop();
+
+    thread_args[thread_id].sockfd = connection_sock;
+    thread_args[thread_id].thread_id = thread_id;
+    thread_args[thread_id].port = ntohs(client_addr.sin_port);
+    inet_ntop(AF_INET, &client_addr.sin_addr, thread_args[thread_id].ip, sizeof(thread_args[thread_id].ip));
+
+    printf("Connection from %s:%d accepted!\n\n", thread_args[thread_id].ip, thread_args[thread_id].port);
+
+    pthread_create(&thread[thread_id], NULL, routine, &thread_args[thread_id]);
   }
 
-  close(connection_sock);
   close(server_sock);
 
   return 0;
