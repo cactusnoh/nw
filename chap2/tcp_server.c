@@ -50,7 +50,7 @@ void push(int x)
   pthread_mutex_unlock(&queue_lock);
 }
 
-void *routine(void *arg)
+void *connection_routine(void *arg)
 {
   MyArg *args = (MyArg *)arg;
   int connection_sock = args->sockfd;
@@ -71,10 +71,44 @@ void *routine(void *arg)
     send(connection_sock, recv_msg, sizeof(recv_msg), 0);
   }
 
+  args->sockfd = -1;
   close(connection_sock);
   push(args->thread_id);
 
   printf("Disconnected from %s:%d\n\n", args->ip, args->port);
+
+  return NULL;
+}
+
+void *start_routine(void *arg)
+{
+  MyArg *args = (MyArg *)arg;
+  int server_sock = args->sockfd;
+
+  int connection_sock;
+  struct sockaddr_in client_addr;
+  socklen_t client_addrlen = sizeof(client_addr);
+
+  while (1) {
+    if(size() == 0) {
+      continue;
+    }
+
+    if ((connection_sock = accept(server_sock, (struct sockaddr *) &client_addr, (socklen_t *)&client_addrlen)) < 0) {
+      perror("Accept error");
+      continue;
+    }
+
+    int thread_id = pop();
+    thread_args[thread_id].sockfd = connection_sock;
+    thread_args[thread_id].thread_id = thread_id;
+    thread_args[thread_id].port = ntohs(client_addr.sin_port);
+    inet_ntop(AF_INET, &client_addr.sin_addr, thread_args[thread_id].ip, sizeof(thread_args[thread_id].ip));
+
+    printf("Connection from %s:%d accepted!\n\n", thread_args[thread_id].ip, thread_args[thread_id].port);
+
+    pthread_create(&thread[thread_id], NULL, connection_routine, &thread_args[thread_id]);
+  }
 
   return NULL;
 }
@@ -108,30 +142,22 @@ int main(void)
     return 1;
   }
 
-  int connection_sock;
-  struct sockaddr_in client_addr;
-  socklen_t client_addrlen = sizeof(server_addr);
+  pthread_t server_thread;
+  MyArg server_arg;
+
+  server_arg.sockfd = server_sock;
+  
+  pthread_create(&server_thread, NULL, start_routine, &server_arg);
+
+  printf("Type 'exit' to quit.\n\n");
+
+  char cmd[100];
 
   while (1) {
-    if(size() == 0) {
-      continue;
+    scanf("%s", cmd);
+    if(strcmp(cmd, "exit") == 0) {
+      break;
     }
-
-    if ((connection_sock = accept(server_sock, (struct sockaddr *) &client_addr, (socklen_t *)&client_addrlen)) < 0) {
-      perror("Accept error");
-      continue;
-    }
-
-    int thread_id = pop();
-
-    thread_args[thread_id].sockfd = connection_sock;
-    thread_args[thread_id].thread_id = thread_id;
-    thread_args[thread_id].port = ntohs(client_addr.sin_port);
-    inet_ntop(AF_INET, &client_addr.sin_addr, thread_args[thread_id].ip, sizeof(thread_args[thread_id].ip));
-
-    printf("Connection from %s:%d accepted!\n\n", thread_args[thread_id].ip, thread_args[thread_id].port);
-
-    pthread_create(&thread[thread_id], NULL, routine, &thread_args[thread_id]);
   }
 
   close(server_sock);

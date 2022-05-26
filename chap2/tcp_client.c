@@ -42,11 +42,11 @@ int main(void)
       return 1;
     }
 
-    if (strcmp(send_msg, "exit") == 0) {
+    if (strcmp(send_msg, "exit") == 0 || read(client_sock, recv_msg, 1024) <= 0) {
+      printf("Disconnected.\n");
       break;
     }
 
-    read(client_sock, recv_msg, 1024);
     printf("Uppercase: %s\n", recv_msg);
   }
 
