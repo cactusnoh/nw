@@ -28,7 +28,7 @@
 #define  A               0
 #define  B               1
 
-/** A's possible state */
+/** Host's possible state */
 #define WAIT_CALL        0  /** waiting for call from above */
 #define WAIT_ACK         1  /** waiting for ACK */
 
@@ -62,6 +62,13 @@ struct event {
   struct event *next;
 };
 
+struct host {
+  int state;              /** State of host */
+  int seqnum;             /** Sequence number */
+  int exp_seqnum;         /** Expected sequence number */
+  struct pkt sndpkt;      /** packet to send */
+};
+
 void init();
 float jimsrand();
 void generate_next_arrival();
@@ -87,40 +94,35 @@ int ntolayer3;             /* number sent into layer 3 */
 int nlost;                 /* number lost in media */
 int ncorrupt;              /* number corrupted by media*/
 
-int A_state;               /** state of A */
-int A_seqnum;              /** sequence number of A */
-struct pkt A_sndpkt;       /** packet to send from A */
-
-int B_state;               /** state of B */
-int B_exp_seqnum;          /** sequence number B is expecting */
-struct pkt B_sndpkt;       /** packet to send from B */
+struct host host_A;
+struct host host_B;
 
 /********* STUDENTS WRITE THE NEXT SEVEN ROUTINES *********/
 
 /* the following routine will be called once (only) before any other */
 /* entity A routines are called. You can use it to do any initialization */
 void A_init() {
-  A_state = WAIT_CALL;
-  A_seqnum = 0;
+  host_A.state = WAIT_CALL;
+  host_A.seqnum = 0;
 }
 
 /* called from layer 5, passed the data to be sent to other side */
 void A_output(struct msg message) {
-  if (A_state == WAIT_ACK) {
+  if (host_A.state == WAIT_ACK) {
     if (TRACE > 2) {
       printf("--A: waiting for ack, message ignored.\n");
     }
     return;
   }
 
-  A_state = WAIT_ACK;
+  host_A.state = WAIT_ACK;
 
-  A_sndpkt.seqnum = A_seqnum;
+  host_A.sndpkt.seqnum = host_A.seqnum;
   for (int i = 0; i < MSG_LEN; ++i) {
-    A_sndpkt.payload[i] = message.data[i];
+    host_A.sndpkt.payload[i] = message.data[i];
   }
-  calc_checksum(&A_sndpkt);
-  tolayer3(A, A_sndpkt);
+  calc_checksum(&host_A.sndpkt);
+  tolayer3(A, host_A.sndpkt);
   starttimer(A, TIMEOUT_INTERVAL);
 }
 
@@ -129,26 +131,26 @@ void A_input(struct pkt packet) {
   // check if packet is not corrupt
   int not_corrupt = check_checksum(&packet);
 
-  if (not_corrupt == 1 && packet.acknum == A_seqnum) {
+  if (not_corrupt == 1 && packet.acknum == host_A.seqnum) {
     if (TRACE > 2) {
       printf("--ACK received correctly.\n");
     }
     nsim++;
-    A_state = WAIT_CALL;
-    A_seqnum = 1 - A_seqnum;
+    host_A.state = WAIT_CALL;
+    host_A.seqnum = 1 - host_A.seqnum;
     stoptimer(A);
   } else {
     if (not_corrupt == 0) {
       printf("--corrupted packet received.\n");
-    } else if (packet.acknum != A_seqnum) {
-      printf("--incorrect ACK received. expected: %d, real: %d\n", A_seqnum, packet.acknum);
+    } else if (packet.acknum != host_A.seqnum) {
+      printf("--incorrect ACK received. expected: %d, real: %d\n", host_A.seqnum, packet.acknum);
     }
   }
 }
 
 /* called when A's timer goes off */
 void A_timerinterrupt() {
-  tolayer3(A, A_sndpkt);
+  tolayer3(A, host_A.sndpkt);
   starttimer(A, TIMEOUT_INTERVAL);
 }
 
@@ -157,7 +159,7 @@ void A_timerinterrupt() {
 /* the following routine will be called once (only) before any other */
 /* entity B routines are called. You can use it to do any initialization */
 void B_init() {
-  B_exp_seqnum = 0;
+  host_B.exp_seqnum = 0;
 }
 
 /* called from layer 3, when a packet arrives for layer 4 at B*/
@@ -165,30 +167,30 @@ void B_input(struct pkt packet) {
   // check if packet is not corrupt
   int not_corrupt = check_checksum(&packet);
 
-  if (not_corrupt == 1 && packet.seqnum == B_exp_seqnum) {
+  if (not_corrupt == 1 && packet.seqnum == host_B.exp_seqnum) {
     if (TRACE > 2) {
       printf("--packet received correctly.\n");
     }
     // 0 -> 1 or 1 -> 0
-    B_exp_seqnum = 1 - B_exp_seqnum;
+    host_B.exp_seqnum = 1 - host_B.exp_seqnum;
     // send payload to layer 5
     tolayer5(B, packet.payload);
     // make ACK and send to A
-    B_sndpkt.acknum = packet.seqnum;
-    calc_checksum(&B_sndpkt);
-    tolayer3(B, B_sndpkt);
+    host_B.sndpkt.acknum = packet.seqnum;
+    calc_checksum(&host_B.sndpkt);
+    tolayer3(B, host_B.sndpkt);
   } else {
     if (TRACE > 2) {
       if (not_corrupt == 1) {
-        printf("--incorrect seqnum packet received. expected: %d, real: %d\n", B_exp_seqnum, packet.seqnum);
+        printf("--incorrect seqnum packet received. expected: %d, real: %d\n", host_B.exp_seqnum, packet.seqnum);
       } else {
         printf("--corrupted packet received.\n");
       }
     }
     // make appropriate ACK and send to A
-    B_sndpkt.acknum = (not_corrupt == 1 ? packet.seqnum : 1 - packet.seqnum);
-    calc_checksum(&B_sndpkt);
-    tolayer3(B, B_sndpkt);
+    host_B.sndpkt.acknum = 1 - host_B.exp_seqnum;
+    calc_checksum(&host_B.sndpkt);
+    tolayer3(B, host_B.sndpkt);
   }
 }
 
