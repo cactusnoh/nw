@@ -45,10 +45,9 @@ struct msg {
 /* a packet is the data unit passed from layer 4 (students code) to layer */
 /* 3 (teachers code).  Note the pre-defined packet structure, which all   */
 /* students must follow. */
-/* struct pkt size = 11 + MSG_LEN */
 struct pkt {
   int seqnum;
-  int acknum;
+  int ack;
   __uint16_t checksum;
   char payload[MSG_LEN];
 };
@@ -131,7 +130,7 @@ void A_input(struct pkt packet) {
   // check if packet is not corrupt
   int not_corrupt = check_checksum(&packet);
 
-  if (not_corrupt == 1 && packet.acknum == host_A.seqnum) {
+  if (not_corrupt == 1 && packet.ack == 1) {
     if (TRACE > 2) {
       printf("--ACK received correctly.\n");
     }
@@ -139,12 +138,17 @@ void A_input(struct pkt packet) {
     host_A.state = WAIT_CALL;
     host_A.seqnum = 1 - host_A.seqnum;
     stoptimer(A);
-  } else {
-    if (not_corrupt == 0) {
+  } else if (not_corrupt == 0) {
+    if (TRACE > 2) {
       printf("--corrupted packet received.\n");
-    } else if (packet.acknum != host_A.seqnum) {
-      printf("--incorrect ACK received. expected: %d, real: %d\n", host_A.seqnum, packet.acknum);
     }
+  } else if (packet.ack == 0) {
+    if (TRACE > 2) {
+      printf("--NACK received, sending packet again\n");
+    }
+    stoptimer(A);
+    tolayer3(A, host_A.sndpkt);
+    starttimer(A, TIMEOUT_INTERVAL);
   }
 }
 
@@ -176,19 +180,22 @@ void B_input(struct pkt packet) {
     // send payload to layer 5
     tolayer5(B, packet.payload);
     // make ACK and send to A
-    host_B.sndpkt.acknum = packet.seqnum;
+    host_B.sndpkt.ack = 1;
     calc_checksum(&host_B.sndpkt);
     tolayer3(B, host_B.sndpkt);
   } else {
-    if (TRACE > 2) {
-      if (not_corrupt == 1) {
+    if (not_corrupt == 1) {
+      if (TRACE > 2) {
         printf("--incorrect seqnum packet received. expected: %d, real: %d\n", host_B.exp_seqnum, packet.seqnum);
-      } else {
+      }
+      host_B.sndpkt.ack = 1;
+    } else {
+      if (TRACE > 2) {
         printf("--corrupted packet received.\n");
       }
+      // make NACK and send to A
+      host_B.sndpkt.ack = 0;
     }
-    // make appropriate ACK and send to A
-    host_B.sndpkt.acknum = 1 - host_B.exp_seqnum;
     calc_checksum(&host_B.sndpkt);
     tolayer3(B, host_B.sndpkt);
   }
@@ -280,7 +287,7 @@ int main(void) {
       }
     } else if (eventptr->evtype == FROM_LAYER3) {
       pkt2give.seqnum = eventptr->pktptr->seqnum;
-      pkt2give.acknum = eventptr->pktptr->acknum;
+      pkt2give.ack = eventptr->pktptr->ack;
       pkt2give.checksum = eventptr->pktptr->checksum;
       for (int i= 0; i < MSG_LEN; i++)   {
         pkt2give.payload[i] = eventptr->pktptr->payload[i];
@@ -510,7 +517,7 @@ void tolayer3(int AorB, struct pkt packet) {
   /* to do something with the packet after we return back to him/her */ 
   mypktptr = (struct pkt *)malloc(sizeof(struct pkt));
   mypktptr->seqnum = packet.seqnum;
-  mypktptr->acknum = packet.acknum;
+  mypktptr->ack = packet.ack;
   mypktptr->checksum = packet.checksum;
 
   for (int i = 0; i < MSG_LEN; i++) {
@@ -519,7 +526,7 @@ void tolayer3(int AorB, struct pkt packet) {
 
   if (TRACE > 2) {
     printf("--TOLAYER3: seq: %d, ack %d, check: %d, payload: ", 
-      mypktptr->seqnum, mypktptr->acknum, mypktptr->checksum);
+      mypktptr->seqnum, mypktptr->ack, mypktptr->checksum);
     for (int i = 0; i < MSG_LEN; ++i) {
       putchar(mypktptr->payload[i]);
     }
@@ -555,7 +562,7 @@ void tolayer3(int AorB, struct pkt packet) {
     } else if (x < .875) {
        mypktptr->seqnum = 999999;
     } else {
-       mypktptr->acknum = 999999;
+       mypktptr->ack = 999999;
     }
 
     if (TRACE > 0) {
@@ -582,7 +589,7 @@ void tolayer5(int AorB, char datasent[MSG_LEN]) {
 
 /** calculate checksum and put it in the checksum field */
 void calc_checksum(struct pkt *p) {
-  int sum = p->acknum + p->seqnum;
+  int sum = p->ack + p->seqnum;
 
   int count = MSG_LEN;
   char *msg = p->payload;
@@ -606,7 +613,7 @@ void calc_checksum(struct pkt *p) {
 
 /** check if packet is corrupt */
 int check_checksum(struct pkt *p) {
-  int sum = p->acknum + p->seqnum;
+  int sum = p->ack + p->seqnum;
 
   int count = MSG_LEN;
   char *msg = p->payload;
