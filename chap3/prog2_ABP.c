@@ -116,12 +116,17 @@ void A_output(struct msg message) {
 
   host_A.state = WAIT_ACK;
 
+  // make packet to send
   host_A.sndpkt.seqnum = host_A.seqnum;
   for (int i = 0; i < MSG_LEN; ++i) {
     host_A.sndpkt.payload[i] = message.data[i];
   }
   calc_checksum(&host_A.sndpkt);
+
+  // send to layer 3
   tolayer3(A, host_A.sndpkt);
+
+  // start timer
   starttimer(A, TIMEOUT_INTERVAL);
 }
 
@@ -179,15 +184,17 @@ void B_input(struct pkt packet) {
     host_B.exp_seqnum = 1 - host_B.exp_seqnum;
     // send payload to layer 5
     tolayer5(B, packet.payload);
-    // make ACK and send to A
+    // make ACK
     host_B.sndpkt.ack = 1;
     calc_checksum(&host_B.sndpkt);
+    // send ACK to layer 3
     tolayer3(B, host_B.sndpkt);
   } else {
     if (not_corrupt == 1) {
       if (TRACE > 2) {
-        printf("--incorrect seqnum packet received. expected: %d, real: %d\n", host_B.exp_seqnum, packet.seqnum);
+        printf("--duplicate packet received. expected: %d, real: %d\n", host_B.exp_seqnum, packet.seqnum);
       }
+      // make ACK and send to A
       host_B.sndpkt.ack = 1;
     } else {
       if (TRACE > 2) {

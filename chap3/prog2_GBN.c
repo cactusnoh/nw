@@ -64,7 +64,7 @@ struct event {
 };
 
 struct host {
-  /** sequence number of oldest unacknowledged packet */
+  /** sequence number of the oldest unacknowledged packet */
   int base;
   /** smallest unused sequence number */
   int next_seqnum;
