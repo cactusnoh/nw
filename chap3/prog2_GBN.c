@@ -28,10 +28,6 @@
 #define  A               0
 #define  B               1
 
-/** Host's possible state */
-#define WAIT_CALL        0  /** waiting for call from above */
-#define WAIT_ACK         1  /** waiting for ACK */
-
 #define MAX_UNACK_PACKET 8
 #define MAX_SEND_BUF 50
 #define MSG_LEN 20
@@ -71,7 +67,6 @@ struct host {
   /** expected sequence number */
   int exp_seqnum;
   /** send buffer */
-  int sndbuf_size;
   struct pkt sndbuf[MAX_SEND_BUF];
 };
 
@@ -114,22 +109,23 @@ void A_init() {
 
 /* called from layer 5, passed the data to be sent to other side */
 void A_output(struct msg message) {
-  if (host_A.state == WAIT_ACK) {
+  if (host_A.next_seqnum == MAX_UNACK_PACKET + host_A.base) {
     if (TRACE > 2) {
-      printf("--A: waiting for ack, message ignored.\n");
+      printf("--A: maximum unacked packets, message refused.\n");
     }
     return;
   }
-
-  host_A.state = WAIT_ACK;
-
-  host_A.sndpkt.seqnum = host_A.seqnum;
+  int buf_idx = host_A.next_seqnum % MAX_SEND_BUF;
+  host_A.sndbuf[buf_idx].seqnum = host_A.next_seqnum;
   for (int i = 0; i < MSG_LEN; ++i) {
-    host_A.sndpkt.payload[i] = message.data[i];
+    host_A.sndbuf[buf_idx].payload[i] = message.data[i];
   }
-  calc_checksum(&host_A.sndpkt);
-  tolayer3(A, host_A.sndpkt);
-  starttimer(A, TIMEOUT_INTERVAL);
+  calc_checksum(&host_A.sndbuf[buf_idx]);
+  tolayer3(A, host_A.sndbuf[buf_idx]);
+  if (host_A.base == host_A.next_seqnum) {
+    starttimer(A, TIMEOUT_INTERVAL);
+  }
+  ++host_A.next_seqnum;
 }
 
 /* called from layer 3, when a packet arrives for layer 4 */
@@ -137,31 +133,28 @@ void A_input(struct pkt packet) {
   // check if packet is not corrupt
   int not_corrupt = check_checksum(&packet);
 
-  if (not_corrupt == 1 && packet.acknum == host_A.seqnum) {
+  if (not_corrupt == 1) {
     if (TRACE > 2) {
       printf("--ACK received correctly.\n");
     }
     nsim++;
-    host_A.state = WAIT_CALL;
-    host_A.seqnum = 1 - host_A.seqnum;
     stoptimer(A);
+    host_A.base = (host_A.base < packet.acknum ? packet.acknum : host_A.base);
+    if (host_A.base < host_A.next_seqnum) {
+      starttimer(A, TIMEOUT_INTERVAL);
+    }
   } else if (not_corrupt == 0) {
     if (TRACE > 2) {
       printf("--corrupted packet received.\n");
     }
-  } else if (packet.acknum == -1) {
-    if (TRACE > 2) {
-      printf("--NACK received, sending packet again\n");
-    }
-    stoptimer(A);
-    tolayer3(A, host_A.sndpkt);
-    starttimer(A, TIMEOUT_INTERVAL);
   }
 }
 
 /* called when A's timer goes off */
 void A_timerinterrupt() {
-  tolayer3(A, host_A.sndpkt);
+  for (int i = host_A.base; i < host_A.next_seqnum; ++i) {
+    tolayer3(A, host_A.sndbuf[i % MAX_SEND_BUF]);
+  }
   starttimer(A, TIMEOUT_INTERVAL);
 }
 
@@ -170,7 +163,9 @@ void A_timerinterrupt() {
 /* the following routine will be called once (only) before any other */
 /* entity B routines are called. You can use it to do any initialization */
 void B_init() {
-  host_B.exp_seqnum = 0;
+  host_B.exp_seqnum = 1;
+  host_B.sndbuf[0].acknum = host_B.exp_seqnum;
+  calc_checksum(&host_B.sndbuf[0]);
 }
 
 /* called from layer 3, when a packet arrives for layer 4 at B*/
@@ -182,29 +177,24 @@ void B_input(struct pkt packet) {
     if (TRACE > 2) {
       printf("--packet received correctly.\n");
     }
-    // 0 -> 1 or 1 -> 0
-    host_B.exp_seqnum = 1 - host_B.exp_seqnum;
+    host_B.exp_seqnum++;
     // send payload to layer 5
     tolayer5(B, packet.payload);
     // make ACK and send to A
-    host_B.sndpkt.acknum = packet.seqnum;
-    calc_checksum(&host_B.sndpkt);
-    tolayer3(B, host_B.sndpkt);
+    host_B.sndbuf[0].acknum = packet.seqnum;
+    calc_checksum(&host_B.sndbuf[0]);
+    tolayer3(B, host_B.sndbuf[0]);
   } else {
     if (not_corrupt == 1) {
       if (TRACE > 2) {
         printf("--incorrect seqnum packet received. expected: %d, real: %d\n", host_B.exp_seqnum, packet.seqnum);
       }
-      host_B.sndpkt.acknum = packet.seqnum;
     } else {
       if (TRACE > 2) {
         printf("--corrupted packet received.\n");
       }
-      // make NACK and send to A
-      host_B.sndpkt.acknum = -1;
     }
-    calc_checksum(&host_B.sndpkt);
-    tolayer3(B, host_B.sndpkt);
+    tolayer3(B, host_B.sndbuf[0]);
   }
 }
 
